@@ -162,11 +162,15 @@ REFUND_POLICIES_SCHEMA = {
 AUDIT_LOGS_SCHEMA = {
     "$jsonSchema": {
         "bsonType": "object",
-        "required": ["log_id", "tool_call", "decision", "timestamp", "outcome"],
+        "required": ["log_id", "case_id", "tool_call", "decision", "timestamp", "outcome"],
         "properties": {
             "log_id": {
                 "bsonType": "string",
                 "description": "Unique audit log identifier (required)",
+            },
+            "case_id": {
+                "bsonType": "string",
+                "description": "Reference to cases.case_id (required)",
             },
             "tool_call": {
                 "bsonType": "object",
@@ -196,6 +200,118 @@ AUDIT_LOGS_SCHEMA = {
             "metadata": {
                 "bsonType": "object",
                 "description": "Any additional contextual data",
+            },
+        },
+    }
+}
+
+
+CASES_SCHEMA = {
+    "$jsonSchema": {
+        "bsonType": "object",
+        "required": ["case_id", "customer_id", "order_id", "request", "status"],
+        "properties": {
+            "case_id": {
+                "bsonType": "string",
+                "description": "Unique case identifier (required)",
+            },
+            "customer_id": {
+                "bsonType": "string",
+                "description": "Reference to customers.customer_id (required)",
+            },
+            "order_id": {
+                "bsonType": "string",
+                "description": "Reference to orders.order_id (required)",
+            },
+            "request": {
+                "bsonType": "object",
+                "description": "Customer's refund request details (required)",
+                "properties": {
+                    "reason": {"bsonType": "string"},
+                    "description": {"bsonType": "string"},
+                    "amount_requested": {"bsonType": ["double", "decimal"]},
+                },
+            },
+            "status": {
+                "bsonType": "string",
+                "enum": [
+                    "investigating",
+                    "pending",
+                    "awaiting_customer",
+                    "awaiting_human_approval"
+                    "approved",
+                    "rejected",
+                    "executed",
+                    "closed",
+                    "failed"
+                ],
+                "description": "Current case status (required)",
+            },
+            "investigation": {
+                "bsonType": "object",
+                "description": "Evidence collected by agents during investigation",
+                "properties": {
+                    "order_details": {"bsonType": "object"},
+                    "refund_history": {"bsonType": "array", "items": {"bsonType": "object"}},
+                    "policy_applied": {"bsonType": "string"},
+                    "notes": {"bsonType": "string"},
+                    "investigated_at": {"bsonType": "date"},
+                },
+            },
+            "risk_assessment": {
+                "bsonType": "object",
+                "description": "Fraud and risk information assessed by agents",
+                "properties": {
+                    "risk_score": {"bsonType": ["double", "int"]},
+                    "risk_level": {
+                        "bsonType": "string",
+                        "enum": ["low", "medium", "high", "critical"],
+                    },
+                    "flags": {"bsonType": "array", "items": {"bsonType": "string"}},
+                    "assessed_at": {"bsonType": "date"},
+                },
+            },
+            "decision": {
+                "bsonType": "object",
+                "description": "Agent's recommendation on the case",
+                "properties": {
+                    "recommendation": {
+                        "bsonType": "string",
+                        "enum": ["approve", "reject", "escalate"],
+                    },
+                    "amount_approved": {"bsonType": ["double", "decimal"]},
+                    "reasoning": {"bsonType": "string"},
+                    "decided_at": {"bsonType": "date"},
+                    "decided_by": {"bsonType": "string"},
+                },
+            },
+            "human_review": {
+                "bsonType": "object",
+                "description": "Human approval or rejection details",
+                "properties": {
+                    "reviewed_by": {"bsonType": "string"},
+                    "action": {
+                        "bsonType": "string",
+                        "enum": ["approved", "rejected", "overridden"],
+                    },
+                    "notes": {"bsonType": "string"},
+                    "reviewed_at": {"bsonType": "date"},
+                },
+            },
+            "execution": {
+                "bsonType": "object",
+                "description": "Refund execution details after approval",
+                "properties": {
+                    "refund_id": {"bsonType": "string"},
+                    "amount_refunded": {"bsonType": ["double", "decimal"]},
+                    "method": {"bsonType": "string"},
+                    "executed_at": {"bsonType": "date"},
+                    "transaction_ref": {"bsonType": "string"},
+                },
+            },
+            "created_at": {
+                "bsonType": "date",
+                "description": "UTC timestamp when the case was created",
             },
         },
     }
@@ -256,6 +372,15 @@ def _apply_indexes(db) -> None:
         IndexModel([("timestamp", ASCENDING)], name="idx_log_timestamp"),
         IndexModel([("outcome", ASCENDING)], name="idx_log_outcome"),
         IndexModel([("session_id", ASCENDING)], name="idx_log_session"),
+        IndexModel([("case_id", ASCENDING)], name="idx_log_case_id"),
+    ])
+
+    db["cases"].create_indexes([
+        IndexModel([("case_id", ASCENDING)], unique=True, name="idx_case_id"),
+        IndexModel([("customer_id", ASCENDING)], name="idx_cases_customer_id"),
+        IndexModel([("order_id", ASCENDING)], name="idx_cases_order_id"),
+        IndexModel([("status", ASCENDING)], name="idx_cases_status"),
+        IndexModel([("created_at", ASCENDING)], name="idx_cases_created_at"),
     ])
 
     print("[models] All indexes applied.")
@@ -280,6 +405,7 @@ def init_collections(db_name: str = "resolve_ai") -> dict[str, Collection]:
     refund_policies = _create_collection(
         db, "refund_policies", REFUND_POLICIES_SCHEMA)
     audit_logs = _create_collection(db, "audit_logs",      AUDIT_LOGS_SCHEMA)
+    cases = _create_collection(db, "cases",           CASES_SCHEMA)
 
     _apply_indexes(db)
 
@@ -289,6 +415,7 @@ def init_collections(db_name: str = "resolve_ai") -> dict[str, Collection]:
         "refunds":         refunds,
         "refund_policies": refund_policies,
         "audit_logs":      audit_logs,
+        "cases":           cases,
     }
 
 
@@ -314,3 +441,7 @@ def get_refund_policies_col(db_name: str = "resolve_ai") -> Collection:
 
 def get_audit_logs_col(db_name: str = "resolve_ai") -> Collection:
     return get_db(db_name)["audit_logs"]
+
+
+def get_cases_col(db_name: str = "resolve_ai") -> Collection:
+    return get_db(db_name)["cases"]

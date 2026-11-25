@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.14"
 dependencies = [
+    "langgraph>=1.2.24",
     "pymongo>=4.20.1",
 ]
 

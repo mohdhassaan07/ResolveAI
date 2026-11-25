@@ -48,6 +48,11 @@ CUSTOMERS_SCHEMA = {
                 "bsonType": "date",
                 "description": "UTC timestamp when the document was created",
             },
+            "total_orders": {
+                "bsonType": "int",
+                "minimum": 0,
+                "description": "Total orders of the customer",
+            },
             "total_refunds": {
                 "bsonType": "int",
                 "minimum": 0,
